@@ -281,6 +281,19 @@ class Obfuscated():
         if insn_imm == []:
             
             # the number of nop is important!!!
+            '''
+            jmp	. + 11
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            original_code
+            '''
             self.obf_code.append("\t%s\t%s%d" % ("jmp", ". + ", 2+9))
             for i in range(9):
                 self.obf_code.append("\tnop")
