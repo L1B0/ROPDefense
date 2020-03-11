@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 class Obfuscated():
-    def __init__(self, insn, addr):
+    def __init__(self, insn, addr, bits):
         self.insn = insn
         self.addr = addr
+        self.bits = bits
         self.obf_code = []
         self.original_code = "\t%s\t%s" % (self.insn.mnemonic, self.insn.op_str)
         self.format_flag = 0
@@ -47,8 +48,12 @@ class Obfuscated():
         #print(self.original_code)
         # write asm into open
         tempasm = open('/tmp/temp.s', 'w')
-        #tempasm.write('.code32\n\t_start:\n\t' + self.original_code + '\n')
-        tempasm.write('_start:\n\t' + self.original_code + '\n')
+        #x32
+        if self.bits == 32:
+            tempasm.write('.code32\n\t_start:\n\t' + self.original_code + '\n')
+        #x64
+        else:
+            tempasm.write('_start:\n\t' + self.original_code + '\n')
         tempasm.close()
         
         # compile the open
@@ -152,10 +157,22 @@ class Obfuscated():
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
         #print(reg)
-
+        
+        # x64
+        if reg[0] == 'r':
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], reg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
+            
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("mov", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("add", reg, insn_imm[1]))
+        
+        self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
         
         return 
 
@@ -166,11 +183,22 @@ class Obfuscated():
         reg = self.insn.reg_name(regindex)
         #print(reg)
 
-        print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
-        
+        # x64
+        if reg[0] == 'r':
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[0], reg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
+            
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("add", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("add", reg, insn_imm[1]))
-
+        
+        self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
+        
         return 
 
     def sub_obf(self, insn_imm):
@@ -180,9 +208,21 @@ class Obfuscated():
         reg = self.insn.reg_name(regindex)
         #print(reg)
 
-        print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
+        # x64
+        if reg[0] == 'r':
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[0], reg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[1], reg))
+            
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("sub", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("sub", reg, insn_imm[1]))
+        
+        self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
         
         return 
 
@@ -192,7 +232,7 @@ class Obfuscated():
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
             
-        print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         '''
         cmp ebx, 0xc3
         ==>
@@ -202,13 +242,29 @@ class Obfuscated():
         cmp ebx, eax
         pop eax
         '''
+        # x64
+        if reg[0] == 'r':
+            temp_teg = "%rbx" if reg == "rax" else "%rax"
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], temp_teg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], temp_teg))
+            self.obf_code.append("\t%s\t%s,%s" % ("cmpq", temp_teg, reg))
+            self.obf_code.append("\t%s\t%s" % ("popq", temp_teg))
+            
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         temp_teg = "ebx" if reg == "eax" else "eax"
         self.obf_code.append("\t%s\t%s" % ("push", temp_teg))
         self.obf_code.append("\t%s\t%s,%d" % ("mov", temp_teg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("add", temp_teg, insn_imm[1]))
         self.obf_code.append("\t%s\t%s,%s" % ("cmp", reg, temp_teg))
         self.obf_code.append("\t%s\t%s" % ("pop", temp_teg))
-
+        
+        self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
         return 
     
     def and_obf(self, insn_imm):
@@ -217,7 +273,7 @@ class Obfuscated():
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
 
-        print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         '''
         and ebx, 0xc3
         ==>
@@ -227,6 +283,20 @@ class Obfuscated():
         and ebx, eax
         pop eax
         '''
+        # x64
+        if reg[0] == 'r':
+            temp_teg = "%rbx" if reg == "rax" else "%rax"
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], temp_teg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], temp_teg))
+            self.obf_code.append("\t%s\t%s,%s" % ("andq", temp_teg, reg))
+            self.obf_code.append("\t%s\t%s" % ("popq", temp_teg))
+            
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
         temp_teg = "ebx" if reg == "eax" else "eax"
         self.obf_code.append("\t%s\t%s" % ("push", temp_teg))
         self.obf_code.append("\t%s\t%s,%d" % ("mov", temp_teg, insn_imm[0]))
@@ -242,11 +312,22 @@ class Obfuscated():
 
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
+        
+        # x64
+        if reg[0] == 'r':
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t$%d,%s" % ("orq", insn_imm[0], reg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("orq", insn_imm[1], reg))
             
-        print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("or", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("or", reg, insn_imm[1]))
         
+        self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
         return
     
     def xor_obf(self, insn_imm):
@@ -256,14 +337,25 @@ class Obfuscated():
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
 
-        print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
+        if reg[0] == 'r':
+            reg = '%'+reg
+            self.obf_code.append("\t%s\t$%d,%s" % ("xorq", insn_imm[0], reg))
+            self.obf_code.append("\t%s\t$%d,%s" % ("xorq", insn_imm[1], reg))
+            
+            self.obf_code = "\n".join(self.obf_code)
+            return 
+            
+        # x32
+        #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("xor", reg, transImm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("xor", reg, transImm[1]))
-            
+        
+        self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
         return
 
     def dispatch(self):
         
+        #logger.info("arch bits: %d"%self.bits)
         logger.info(hex(self.addr) + self.original_code)
         #return self.original_code
         
@@ -340,7 +432,7 @@ class Obfuscated():
         else:
             logger.warning("cannot process %s" % self.original_code)
         
-        return ASMConverter.intel_to_att("\n".join(self.obf_code))
+        return self.obf_code
         #return "\n".join(self.obf_code)
         
 
