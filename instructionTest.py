@@ -13,6 +13,12 @@ logger.setLevel(logging.INFO)
 
 class Obfuscated():
     def __init__(self, insn, addr, bits):
+        """
+        
+        :param insn: Capstone Instr object
+        :param int addr: Address of the instruction
+        :param int bits: binary arch bits, 32 or 64 
+        """
         self.insn = insn
         self.addr = addr
         self.bits = bits
