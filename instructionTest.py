@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+# __Author__ = 'l1b0'
+
 from capstone import *
 from capstone.x86 import *
 import random
@@ -11,7 +14,90 @@ logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(le
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-class Obfuscated():
+class FreeBranchProtection():
+    def __init__(self, assembly, name, bits):
+        """
+        
+        :param list assembly: [addr, asm]
+        :param int bits: binary arch bits, 32 or 64 
+        """
+        self.assembly = assembly
+        self.name = name
+        self.bits = bits
+        self.new_assembly = []
+        #self.original_code = "\t%s\t%s" % (self.insn.mnemonic, self.insn.op_str)
+        #self.format_flag = 0
+        
+    def dispatch(self):
+        
+        logging.warning(self.name)
+        if self.name == '__stack_chk_fail_local':
+            return self.assembly
+        
+        # x86 retn addr encode and decode
+        if self.bits == 32:
+            canary_flag = '%gs:0x14'
+            encode_flag = '\tpushl\t%ebp'
+            encode_offset = -1
+            decode_flag = '__stack_chk_fail'
+            retn_flag = '\tretl\t'
+            encode_retn_addr = '\t%s\t%s\n'%('pushl','%eax')
+            encode_retn_addr += '\t%s\t%s,%s\n'%('movl','%gs:0x14','%eax')
+            encode_retn_addr += '\t%s\t%s,%s\n'%('xorl','%eax','4(%esp)')
+            encode_retn_addr += '\t%s\t%s\n'%('popl','%eax')
+        # x86-64
+        else:
+            canary_flag = '%fs:0x28' 
+            encode_flag = '\tpushq\t%rbp'
+            encode_offset = 0
+            decode_flag = '__stack_chk_fail'
+            retn_flag = '\tretq\t'
+            encode_retn_addr = '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
+            encode_retn_addr += '\t%s\t%s,%s\n'%('xorq','%r11','(%rsp)')
+            
+        # find check_insn and add encode_retn_addr into asm
+        # i is addr, j is block
+        for i,j in enumerate(self.assembly):
+            addr = j[0]
+            asm = j[1]
+            #logging.info(addr,asm)
+            # add encode
+            if canary_flag in asm:
+                logging.warning('canary\n'+asm)
+                next_addr = self.assembly[i+encode_offset][0]
+                next_asm = self.assembly[i+encode_offset][1]
+                if encode_flag in next_asm:
+                    logging.warning('encode\n'+next_asm)
+                    next_asm = next_asm.split('\n')
+                    logging.warning(next_asm)
+                    for ii,jj in enumerate(next_asm):
+                        if jj == encode_flag:
+                            next_asm[ii] = encode_retn_addr + next_asm[ii]
+                            break
+                    next_asm = '\n'.join(next_asm)
+                    logging.warning(next_asm)
+                    self.assembly[i+encode_offset] = (addr, next_asm)
+                    
+            # add decode
+            elif decode_flag in asm:
+                
+                next_addr = self.assembly[i+1][0]
+                next_asm = self.assembly[i+1][1].split('\n')
+                #logging.warning(next_asm)
+                
+                for ii,jj in enumerate(next_asm):
+                    if jj == retn_flag:
+                        next_asm[ii] = encode_retn_addr + next_asm[ii]
+                        break
+                        
+                next_asm = '\n'.join(next_asm)
+                logging.warning(next_asm)
+                self.assembly[i+1] = (next_addr, next_asm)        
+            
+        return self.assembly
+        
+        
+class InsnObfuscated():
     def __init__(self, insn, addr, bits):
         """
         
@@ -75,7 +161,7 @@ class Obfuscated():
         
         return hex_s
     
-    def isInsnDanger(self):
+    def is_insn_danger(self):
         
         # retn
         if self.insn.id == X86_INS_RET:
@@ -107,7 +193,7 @@ class Obfuscated():
         return False
         
         
-    def isImmDanger(self):
+    def is_imm_danger(self):
         
         if len(self.insn.operands) == 0:
             return []
@@ -366,14 +452,14 @@ class Obfuscated():
         #return self.original_code
         
         # 1. if instruction includes 0xc2,c3,ca,cb, the insn is dangerous, but except retn.
-        if self.isInsnDanger() == False:
+        if self.is_insn_danger() == False:
             
             return self.original_code
         
         logger.warning("%s is danger!" % self.original_code)
             
         # 2. Insn is danger, and judge if imm includes ...
-        insn_imm = self.isImmDanger()
+        insn_imm = self.is_imm_danger()
         
         # 2.1. imm is safty, so add nop
         if insn_imm == []:
