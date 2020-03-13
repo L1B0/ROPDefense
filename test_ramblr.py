@@ -1,12 +1,6 @@
 #!/usr/bin/python3
-import patcherex
-import os
-from patcherex.backends.detourbackend import DetourBackend
-from patcherex.backends.reassembler_backend import ReassemblerBackend
-from patcherex.patches import *
-from angrutils import *
-# the detour backend can be used as well:
-# backend = DetourBackend("test_binaries/CADET_00003")
+# __Author__ = 'l1b0'
+
 import compilerex
 import angr
 import subprocess
@@ -17,32 +11,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 if __name__ == '__main__':
-    '''
-    
 
-    #binary_name = input("binary name:")
-    #filepath = "/home/l1b0/Desktop/test_binaries/" + binary_name
-    filepath = "/home/l1b0/Desktop/test_binaries/target-i386"
-    backend = ReassemblerBackend(filepath)
-
-    insn_info = backend._binary.assembly(comments=True,symbolized=True)
-    #binaryReassembler = backend._binary
-    #instructionReplacement(binaryReassembler)
-    #print(type(insn_info))
-    with open('/home/l1b0/Desktop/test/test.s','w') as f:
-        f.write(insn_info)
-    f.close()
-
-    file_path = "/home/l1b0/Desktop/test/test.s"
-    filename = "target-i386"
-
-    retcode, res = compilerex.assemble([file_path, '-o', filename])
-
-    if retcode != 0:
-        print res
-'''
-
-    bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/test_add_x64"
+    bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/test_add"
     #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/original/CROMU_00008"
     newbin_filepath = bin_filepath + "_new"
     asm_filepath = bin_filepath + ".s" \
@@ -74,6 +44,7 @@ if __name__ == '__main__':
 
         if retcode != 0:
             print(res)
+
     # elf
     elif file_header[:4] == b'\x7fELF':
         compile_list = ["gcc"]
@@ -99,14 +70,8 @@ if __name__ == '__main__':
 
         #"-z", "noexecstack",  "-fstack-protector-all"
         subprocess.check_call(compile_list)
+
     # other file
     else:
         raise Exception("Invalid executed file!")
 
-'''
-    path = "/home/wc/GraPro/angr/patcherex-master/tmp/" + os.path.basename(backend.project.filename) + ".s"
-    with open(path,'w') as fd:
-          fd.write(assembly)
-    command = "%s %s %s"%("cp",path,"/home/wc/GraPro/vagrantpro/my-cb/src/")
-    os.system(command)
-'''
