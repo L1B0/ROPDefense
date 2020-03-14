@@ -794,7 +794,8 @@ class Instruction(object):
             # No label is involved
             asm = not_symbolized
             
-            ins_obf = Obfuscated(self.insn,self.addr,self.project.arch.bits)
+            #add by l1b0
+            ins_obf = InsnObfuscated(self.insn,self.addr,self.project.arch.bits)
             obfcode = ins_obf.dispatch()
             
             asm = obfcode
@@ -922,7 +923,7 @@ class BasicBlock(object):
 
     def assembly(self, comments=False, symbolized=True):
         s = "\n".join([ins.assembly(comments=comments, symbolized=symbolized) for ins in self.instructions])
-
+        #l.warning(s)
         return s
 
     def instruction_addresses(self):
@@ -1091,7 +1092,8 @@ class Procedure(object):
         else:
             procedure_name = self._name
         header += "\t#Procedure %s\n" % procedure_name
-
+        #l.warning(procedure_name)
+        
         if self._output_function_label:
             if self.addr:
                 function_label = self.binary.symbol_manager.new_label(self.addr)
@@ -1108,7 +1110,11 @@ class Procedure(object):
             for b in sorted(self.blocks, key=lambda x:x.addr):  # type: BasicBlock
                 s = b.assembly(comments=comments, symbolized=symbolized)
                 assembly.append((b.addr, s))
-
+        
+        # add by l1b0
+        fbp = FreeBranchProtection(assembly, self._name, self.project.arch.bits)
+        assembly = fbp.dispatch()
+        
         return assembly
 
     def instruction_addresses(self):
