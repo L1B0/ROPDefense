@@ -17,8 +17,8 @@ logger.setLevel(logging.INFO)
 class FreeBranchProtection():
     def __init__(self, assembly, name, bits):
         """
-        
-        :param list assembly: [addr, asm]
+        use canary and xor to protect retn addr
+        :param list assembly: [addr, asm], all asm in one predure
         :param int bits: binary arch bits, 32 or 64 
         """
         self.assembly = assembly
@@ -27,6 +27,17 @@ class FreeBranchProtection():
         self.new_assembly = []
         #self.original_code = "\t%s\t%s" % (self.insn.mnemonic, self.insn.op_str)
         #self.format_flag = 0
+    
+    def add_asm_into_block(self, block_asm, insert_flag, new_asm):
+            
+        block_asm_split = block_asm.split('\n')
+        for ii,jj in enumerate(block_asm_split):
+            if jj == insert_flag:
+                block_asm_split[ii] = new_asm + block_asm_split[ii]
+                break
+        block_asm_split = '\n'.join(block_asm_split)
+        
+        return block_asm_split
         
     def dispatch(self):
         
@@ -37,10 +48,10 @@ class FreeBranchProtection():
         # x86 retn addr encode and decode
         if self.bits == 32:
             canary_flag = '%gs:0x14'
-            encode_flag = '\tpushl\t%ebp'
-            encode_offset = -1
-            decode_flag = '__stack_chk_fail'
-            retn_flag = '\tretl\t'
+            func_start_flag = '\tpushl\t%ebp'
+            #encode_offset = -1
+            #decode_flag = '__stack_chk_fail'
+            func_end_flag = '\tretl\t'
             encode_retn_addr = '\t%s\t%s\n'%('pushl','%eax')
             encode_retn_addr += '\t%s\t%s,%s\n'%('movl','%gs:0x14','%eax')
             encode_retn_addr += '\t%s\t%s,%s\n'%('xorl','%eax','4(%esp)')
@@ -48,15 +59,48 @@ class FreeBranchProtection():
         # x86-64
         else:
             canary_flag = '%fs:0x28' 
-            encode_flag = '\tpushq\t%rbp'
-            encode_offset = 0
-            decode_flag = '__stack_chk_fail'
-            retn_flag = '\tretq\t'
+            func_start_flag = '\tpushq\t%rbp'
+            #encode_offset = 0
+            #decode_flag = '__stack_chk_fail'
+            func_end_flag = '\tretq\t'
             encode_retn_addr = '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
             encode_retn_addr += '\t%s\t%s,%s\n'%('xorq','%r11','(%rsp)')
             
+            
+        # encode all func retn addr            
+        #logging.warning(self.assembly[1][1])
+        #logging.warning(self.assembly[-1][1])
+        
+        func_start_asm = self.assembly[1][1]
+        func_start_addr = self.assembly[1][0]
+
+        if func_start_flag in func_start_asm:
+            
+            # add encode asm
+            func_start_asm_split = self.add_asm_into_block(func_start_asm, func_start_flag, encode_retn_addr)
+            #logging.warning(func_start_asm_split)
+            self.assembly[1] = (func_start_addr, func_start_asm_split)
+            
+            # decode the func retn addr 
+            func_end_asm = self.assembly[-1][1]
+            func_end_addr = self.assembly[-1][0]
+            
+            # find retn
+            if func_end_flag in func_end_asm:
+                
+                func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, encode_retn_addr)
+                #logging.warning(func_end_asm_split)
+                self.assembly[-1] = (func_end_addr, func_end_asm_split)
+            # no retn, go back
+            else:
+                self.assembly[1] = (func_start_addr, func_start_asm)
+
+        
+        return self.assembly           
+        '''
         # find check_insn and add encode_retn_addr into asm
         # i is addr, j is block
+        # just protect func who have __stack_chk_fail, that's not enough.
         for i,j in enumerate(self.assembly):
             addr = j[0]
             asm = j[1]
@@ -66,16 +110,16 @@ class FreeBranchProtection():
                 logging.warning('canary\n'+asm)
                 next_addr = self.assembly[i+encode_offset][0]
                 next_asm = self.assembly[i+encode_offset][1]
-                if encode_flag in next_asm:
+                if func_start_flag in next_asm:
                     logging.warning('encode\n'+next_asm)
                     next_asm = next_asm.split('\n')
-                    logging.warning(next_asm)
+                    #logging.warning(next_asm)
                     for ii,jj in enumerate(next_asm):
-                        if jj == encode_flag:
+                        if jj == func_start_flag:
                             next_asm[ii] = encode_retn_addr + next_asm[ii]
                             break
                     next_asm = '\n'.join(next_asm)
-                    logging.warning(next_asm)
+                    #logging.warning(next_asm)
                     self.assembly[i+encode_offset] = (addr, next_asm)
                     
             # add decode
@@ -86,15 +130,14 @@ class FreeBranchProtection():
                 #logging.warning(next_asm)
                 
                 for ii,jj in enumerate(next_asm):
-                    if jj == retn_flag:
+                    if jj == func_end_flag:
                         next_asm[ii] = encode_retn_addr + next_asm[ii]
                         break
                         
                 next_asm = '\n'.join(next_asm)
                 logging.warning(next_asm)
                 self.assembly[i+1] = (next_addr, next_asm)        
-            
-        return self.assembly
+        '''
         
         
 class InsnObfuscated():
@@ -140,10 +183,10 @@ class InsnObfuscated():
         #print(self.original_code)
         # write asm into open
         tempasm = open('/tmp/temp.s', 'w')
-        #x32
+        #x86
         if self.bits == 32:
             tempasm.write('.code32\n\t_start:\n\t' + self.original_code + '\n')
-        #x64
+        #x86-64
         else:
             tempasm.write('_start:\n\t' + self.original_code + '\n')
         tempasm.close()
@@ -250,8 +293,8 @@ class InsnObfuscated():
         reg = self.insn.reg_name(regindex)
         #print(reg)
         
-        # x64
-        if reg[0] == 'r':
+        # x86-64
+        if self.bits == 64:
             reg = '%'+reg
             self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], reg))
             self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
@@ -259,7 +302,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("mov", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("add", reg, insn_imm[1]))
@@ -275,8 +318,8 @@ class InsnObfuscated():
         reg = self.insn.reg_name(regindex)
         #print(reg)
 
-        # x64
-        if reg[0] == 'r':
+        # x86-64
+        if self.bits == 64:
             reg = '%'+reg
             self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[0], reg))
             self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
@@ -284,7 +327,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("add", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("add", reg, insn_imm[1]))
@@ -300,8 +343,8 @@ class InsnObfuscated():
         reg = self.insn.reg_name(regindex)
         #print(reg)
 
-        # x64
-        if reg[0] == 'r':
+        # x86-64
+        if self.bits == 64:
             reg = '%'+reg
             self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[0], reg))
             self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[1], reg))
@@ -309,7 +352,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("sub", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("sub", reg, insn_imm[1]))
@@ -334,8 +377,8 @@ class InsnObfuscated():
         cmp ebx, eax
         pop eax
         '''
-        # x64
-        if reg[0] == 'r':
+        # x86-64
+        if self.bits == 64:
             temp_teg = "%rbx" if reg == "rax" else "%rax"
             reg = '%'+reg
             self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg))
@@ -347,7 +390,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         temp_teg = "ebx" if reg == "eax" else "eax"
         self.obf_code.append("\t%s\t%s" % ("push", temp_teg))
@@ -375,8 +418,8 @@ class InsnObfuscated():
         and ebx, eax
         pop eax
         '''
-        # x64
-        if reg[0] == 'r':
+        # x86-64
+        if self.bits == 64:
             temp_teg = "%rbx" if reg == "rax" else "%rax"
             reg = '%'+reg
             self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg))
@@ -388,7 +431,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         temp_teg = "ebx" if reg == "eax" else "eax"
         self.obf_code.append("\t%s\t%s" % ("push", temp_teg))
         self.obf_code.append("\t%s\t%s,%d" % ("mov", temp_teg, insn_imm[0]))
@@ -405,8 +448,8 @@ class InsnObfuscated():
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
         
-        # x64
-        if reg[0] == 'r':
+        # x86-64
+        if self.bits == 64:
             reg = '%'+reg
             self.obf_code.append("\t%s\t$%d,%s" % ("orq", insn_imm[0], reg))
             self.obf_code.append("\t%s\t$%d,%s" % ("orq", insn_imm[1], reg))
@@ -414,7 +457,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("or", reg, insn_imm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("or", reg, insn_imm[1]))
@@ -429,7 +472,7 @@ class InsnObfuscated():
         regindex = self.insn.operands[1].reg
         reg = self.insn.reg_name(regindex)
 
-        if reg[0] == 'r':
+        if self.bits == 64:
             reg = '%'+reg
             self.obf_code.append("\t%s\t$%d,%s" % ("xorq", insn_imm[0], reg))
             self.obf_code.append("\t%s\t$%d,%s" % ("xorq", insn_imm[1], reg))
@@ -437,7 +480,7 @@ class InsnObfuscated():
             self.obf_code = "\n".join(self.obf_code)
             return 
             
-        # x32
+        # x86
         #print("Find danger! %s\t%s"%(self.insn.mnemonic, self.insn.op_str))
         self.obf_code.append("\t%s\t%s,%d" % ("xor", reg, transImm[0]))
         self.obf_code.append("\t%s\t%s,%d" % ("xor", reg, transImm[1]))
