@@ -31,17 +31,27 @@ class FreeBranchProtection():
     def add_asm_into_block(self, block_asm, insert_flag, new_asm):
             
         block_asm_split = block_asm.split('\n')
+        #logger.warning(block_asm_split)
         for ii,jj in enumerate(block_asm_split):
-            if jj == insert_flag:
-                block_asm_split[ii] = new_asm + block_asm_split[ii]
+            
+            if insert_flag == '' and '@function' in jj:
+                block_asm_split[ii+2] = new_asm + block_asm_split[ii+2]
                 break
+                
+            if jj == insert_flag:
+                #if head:
+                block_asm_split[ii] = new_asm + block_asm_split[ii]
+                #else:
+                #    block_asm_split[ii] = block_asm_split[ii] + new_asm
+                break
+                
         block_asm_split = '\n'.join(block_asm_split)
         
         return block_asm_split
         
     def dispatch(self):
         
-        logging.warning(self.name)
+        #logger.warning(self.name)
         if self.name == '__stack_chk_fail_local':
             return self.assembly
         
@@ -52,32 +62,38 @@ class FreeBranchProtection():
             #encode_offset = -1
             #decode_flag = '__stack_chk_fail'
             func_end_flag = '\tretl\t'
+            
             encode_retn_addr = '\t%s\t%s\n'%('pushl','%eax')
             encode_retn_addr += '\t%s\t%s,%s\n'%('movl','%gs:0x14','%eax')
             encode_retn_addr += '\t%s\t%s,%s\n'%('xorl','%eax','4(%esp)')
             encode_retn_addr += '\t%s\t%s\n'%('popl','%eax')
+
         # x86-64
         else:
             canary_flag = '%fs:0x28' 
             func_start_flag = '\tpushq\t%rbp'
+            #func_push_flag = '\tmovq\t%rsp, %rbp'
             #encode_offset = 0
             #decode_flag = '__stack_chk_fail'
             func_end_flag = '\tretq\t'
+            
             encode_retn_addr = '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
             encode_retn_addr += '\t%s\t%s,%s\n'%('xorq','%r11','(%rsp)')
             
+            #encode_jmp = '\n\t%s\t%s,%s'%('movq','%r11','-0x50(%rbp)')
             
-        # encode all func retn addr            
-        #logging.warning(self.assembly[1][1])
-        #logging.warning(self.assembly[-1][1])
+        # encode all func retn addr     
         
+        #logger.warning(self.assembly[1][1])
+        #logger.warning(self.assembly[-1][1]) 
         func_start_asm = self.assembly[1][1]
         func_start_addr = self.assembly[1][0]
 
         if func_start_flag in func_start_asm:
             
             # add encode asm
-            func_start_asm_split = self.add_asm_into_block(func_start_asm, func_start_flag, encode_retn_addr)
+            func_start_asm_split = self.add_asm_into_block(func_start_asm, '', encode_retn_addr)
+            
             #logging.warning(func_start_asm_split)
             self.assembly[1] = (func_start_addr, func_start_asm_split)
             
@@ -89,6 +105,7 @@ class FreeBranchProtection():
             if func_end_flag in func_end_asm:
                 
                 func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, encode_retn_addr)
+                
                 #logging.warning(func_end_asm_split)
                 self.assembly[-1] = (func_end_addr, func_end_asm_split)
             # no retn, go back
@@ -230,7 +247,7 @@ class InsnObfuscated():
         dangerImm = [0xc2, 0xc3, 0xca, 0xcb]
         for i in asm_hex:
             if i in dangerImm:
-                logging.warning("danger insn: %s"%str(asm_hex))
+                #logging.warning("danger insn: %s"%str(asm_hex))
                 return True
         
         return False
@@ -491,9 +508,49 @@ class InsnObfuscated():
     def dispatch(self):
         
         #logger.info("arch bits: %d"%self.bits)
-        logger.info(hex(self.addr) + self.original_code)
+        #logger.info(hex(self.addr) + self.original_code)
+        #logger.info(str(len(self.insn.operands))+self.original_code)
         #return self.original_code
         
+        insn_type = self.insn.id
+        # indirect jump, add check code
+        if insn_type == X86_INS_JMP or insn_type == X86_INS_CALL:
+            #logger.info(str(len(self.insn.operands))+self.original_code)
+            # 1	jmpq	*%rax
+            # logger.info(str(self.insn.operands[0].type == X86_OP_IMM))
+            # False
+            if self.insn.operands[0].type == X86_OP_REG and self.bits == 64:
+                logger.info(self.original_code)
+                # add check code
+                '''
+                movq    $0x800000000000,%r11
+                cmpq    %r11,4(%rbp)
+	            ja	. + 3
+	            hlt
+                jmpq    *%rax
+                '''
+                decode_jmp = '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,4(%rbp)\n\tja\t. + 3\n\thlt\n'
+                self.obf_code.append(decode_jmp)
+                self.obf_code.append(self.original_code)
+                return "\n".join(self.obf_code)
+            
+            if self.insn.operands[0].type == X86_OP_REG and self.bits == 32:
+                logger.info(self.original_code)
+                # add check code
+                '''
+                pushl   %eax
+                shrl    $24,%eax
+	            cmpl    $0xf7,%eax
+                jne     . + 3
+	            hlt
+                popl    %eax
+                jmpq    *%eax
+                '''
+                decode_jmp = '\tpushl\t%eax\n\tshrl\t$24,%eax\n\tcmpl\t$0xf7,%eax\n\tjne\t. + 3\n\thlt\n\tpopl\t%eax\n'
+                self.obf_code.append(decode_jmp)
+                self.obf_code.append(self.original_code)
+                return "\n".join(self.obf_code)
+            
         # 1. if instruction includes 0xc2,c3,ca,cb, the insn is dangerous, but except retn.
         if self.is_insn_danger() == False:
             
@@ -530,7 +587,7 @@ class InsnObfuscated():
         
         # 2.2. imm is danger
         logger.warning("%s imm danger!" % self.original_code)
-        insn_type = self.insn.id
+        
         if insn_type == X86_INS_INVALID:
             logger.info("now asmcode is X86_INS_INVALID")
             return
@@ -569,10 +626,4 @@ class InsnObfuscated():
         
         return self.obf_code
         #return "\n".join(self.obf_code)
-        
-
-
-        
-        
-        
-        
+ 
