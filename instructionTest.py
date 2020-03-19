@@ -32,26 +32,33 @@ class FreeBranchProtection():
             
         block_asm_split = block_asm.split('\n')
         #logger.warning(block_asm_split)
+        flag = False
         for ii,jj in enumerate(block_asm_split):
             
             if insert_flag == '' and '@function' in jj:
                 block_asm_split[ii+2] = new_asm + block_asm_split[ii+2]
+                flag = True
                 break
                 
             if jj == insert_flag:
                 #if head:
                 block_asm_split[ii] = new_asm + block_asm_split[ii]
+                flag = True
                 #else:
                 #    block_asm_split[ii] = block_asm_split[ii] + new_asm
                 break
-                
+        
+        if flag == False:
+            #logger.warning(block_asm_split)
+            block_asm_split[0] = new_asm + block_asm_split[0]
+            
         block_asm_split = '\n'.join(block_asm_split)
         
         return block_asm_split
         
     def dispatch(self):
         
-        #logger.warning(self.name)
+        logger.warning(self.name)
         if self.name == '__stack_chk_fail_local':
             return self.assembly
         
@@ -77,8 +84,10 @@ class FreeBranchProtection():
             #decode_flag = '__stack_chk_fail'
             func_end_flag = '\tretq\t'
             
-            encode_retn_addr = '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
-            encode_retn_addr += '\t%s\t%s,%s\n'%('xorq','%r11','(%rsp)')
+            encode_retn_addr = '\t%s\t%s\n'%('pushq','%r11')
+            encode_retn_addr += '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
+            encode_retn_addr += '\t%s\t%s,%s\n'%('xorq','%r11','8(%rsp)')
+            encode_retn_addr += '\t%s\t%s\n'%('popq','%r11')
             
             #encode_jmp = '\n\t%s\t%s,%s'%('movq','%r11','-0x50(%rbp)')
             
@@ -97,19 +106,24 @@ class FreeBranchProtection():
             #logging.warning(func_start_asm_split)
             self.assembly[1] = (func_start_addr, func_start_asm_split)
             
-            # decode the func retn addr 
-            func_end_asm = self.assembly[-1][1]
-            func_end_addr = self.assembly[-1][0]
+            # decode the func retn addr
+            flag = False
+            for i in range(len(self.assembly)-1,-1,-1):
+                func_end_asm = self.assembly[i][1]
+                func_end_addr = self.assembly[i][0]
             
-            # find retn
-            if func_end_flag in func_end_asm:
-                
-                func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, encode_retn_addr)
-                
-                #logging.warning(func_end_asm_split)
-                self.assembly[-1] = (func_end_addr, func_end_asm_split)
+                #logging.warning(func_end_asm)
+                # find retn
+                if func_end_flag in func_end_asm:
+                    
+                    flag = True
+                    func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, encode_retn_addr)
+                    
+                    #logging.warning(func_end_asm_split)
+                    self.assembly[i] = (func_end_addr, func_end_asm_split)
+            
             # no retn, go back
-            else:
+            if not flag:
                 self.assembly[1] = (func_start_addr, func_start_asm)
 
         
@@ -525,8 +539,8 @@ class InsnObfuscated():
                 '''
                 movq    $0x800000000000,%r11
                 cmpq    %r11,4(%rbp)
-	            ja	. + 3
-	            hlt
+                ja	. + 3
+                hlt
                 jmpq    *%rax
                 '''
                 decode_jmp = '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,4(%rbp)\n\tja\t. + 3\n\thlt\n'
@@ -540,9 +554,9 @@ class InsnObfuscated():
                 '''
                 pushl   %eax
                 shrl    $24,%eax
-	            cmpl    $0xf7,%eax
+                cmpl    $0xf7,%eax
                 jne     . + 3
-	            hlt
+                hlt
                 popl    %eax
                 jmpq    *%eax
                 '''
