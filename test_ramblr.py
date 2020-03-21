@@ -10,13 +10,12 @@ logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(le
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-if __name__ == '__main__':
+def ropDefense(bin_filepath):
 
-    bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/test_add"
+    #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/level3"
     #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/original/CROMU_00008"
     newbin_filepath = bin_filepath + "_new"
-    asm_filepath = bin_filepath + ".s" \
-                                  ""
+    asm_filepath = bin_filepath + ".s"
 
     # reassembly
     p = angr.Project(bin_filepath, auto_load_libs=False)
@@ -24,13 +23,14 @@ if __name__ == '__main__':
     #r = p.analyses.Reassembler()
     r.symbolize()
     r.remove_unnecessary_stuff()
+    # add by l1b0
     assembly = r.assembly(comments=True, symbolized=True)
 
     assembly = assembly.replace('.globl _dl_relocate_static_pie','')
 
     # exe type: elf or cgc
     file_header = open(bin_filepath,'rb').read(5)
-    logging.info(file_header)
+    #logging.info(file_header)
 
     # cgc
     if file_header[:4] == b'\x7fCGC':
@@ -43,7 +43,7 @@ if __name__ == '__main__':
         retcode, res = compilerex.assemble([asm_filepath, '-o', newbin_filepath])
 
         if retcode != 0:
-            print(res)
+            logger.error(res)
 
     # elf
     elif file_header[:4] == b'\x7fELF':
@@ -75,3 +75,6 @@ if __name__ == '__main__':
     else:
         raise Exception("Invalid executed file!")
 
+if __name__ == '__main__':
+
+    ropDefense("/home/l1b0/Desktop/cgc-linux/test_binaries/elf/level3")
