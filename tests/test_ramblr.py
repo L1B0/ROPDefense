@@ -26,8 +26,8 @@ def ropDefense(bin_filepath):
     # add by l1b0
     assembly = r.assembly(comments=True, symbolized=True)
 
-    assembly = assembly.replace('.globl _dl_relocate_static_pie','')
-
+    #assembly = assembly.replace('.globl _dl_relocate_static_pie','')
+    #assembly = assembly.replace('.globl __libc_csu_init', '')
     # exe type: elf or cgc
     file_header = open(bin_filepath,'rb').read(5)
     #logging.info(file_header)
@@ -57,13 +57,23 @@ def ropDefense(bin_filepath):
         f.write(assembly)
         f.close()
 
-        # no pie
-        compile_list.append("-no-pie")
-        # NX enabled
-        compile_list.append("-z")
-        compile_list.append("noexecstack")
-        # canary open
-        compile_list.append("-fstack-protector-all")
+        # checksec elf
+        res = subprocess.Popen('./checksec.sh --file='+bin_filepath,
+                               shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds = True)
+        res = res.stdout.read()
+
+        if b'Canary found' in res:
+            compile_list.append("-fstack-protector-all")
+
+        if b'NX disabled' in res:
+            compile_list.append("-z")
+            compile_list.append("execstack")
+
+        if b'No PIE' in res:
+            compile_list.append("-no-pie")
+
+        #logging.warning(compile_list)
+
         compile_list.append(asm_filepath)
         compile_list.append("-o")
         compile_list.append(newbin_filepath)
@@ -77,4 +87,5 @@ def ropDefense(bin_filepath):
 
 if __name__ == '__main__':
 
-    ropDefense("/home/l1b0/Desktop/cgc-linux/test_binaries/elf/level3")
+    #ropDefense("/home/l1b0/Desktop/x86_64/df_gcc_-O1")
+    ropDefense("/home/l1b0/Desktop/cgc-linux/test_binaries/elf/test_add_nopie")
