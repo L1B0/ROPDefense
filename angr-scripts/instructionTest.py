@@ -58,7 +58,7 @@ class FreeBranchProtection():
         
     def dispatch(self):
         
-        logger.warning(self.name)
+        #logger.warning(self.name)
         if self.name == '__stack_chk_fail_local':
             return self.assembly
         
@@ -97,9 +97,11 @@ class FreeBranchProtection():
         #logger.warning(self.assembly[-1][1]) 
         func_start_asm = self.assembly[1][1]
         func_start_addr = self.assembly[1][0]
+        func_end_asm = self.assembly[-1][1]
 
-        if func_start_flag in func_start_asm:
+        if func_end_flag in func_end_asm:
             
+            #logger.warning(self.name)
             # add encode asm
             func_start_asm_split = self.add_asm_into_block(func_start_asm, '', encode_retn_addr)
             
@@ -116,6 +118,7 @@ class FreeBranchProtection():
                 # find retn
                 if func_end_flag in func_end_asm:
                     
+                    logger.warning("retn protection: "+self.name)
                     flag = True
                     func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, encode_retn_addr)
                     
@@ -534,7 +537,7 @@ class InsnObfuscated():
             # logger.info(str(self.insn.operands[0].type == X86_OP_IMM))
             # False
             if self.insn.operands[0].type == X86_OP_REG and self.bits == 64:
-                logger.info(self.original_code)
+                logger.warning("indirect jmp protection: "+self.original_code)
                 # add check code
                 '''
                 movq    $0x800000000000,%r11
@@ -549,7 +552,7 @@ class InsnObfuscated():
                 return "\n".join(self.obf_code)
             
             if self.insn.operands[0].type == X86_OP_REG and self.bits == 32:
-                logger.info(self.original_code)
+                logger.warning("indirect jmp protection: "+self.original_code)
                 # add check code
                 '''
                 pushl   %eax
@@ -570,7 +573,7 @@ class InsnObfuscated():
             
             return self.original_code
         
-        logger.warning("%s is danger!" % self.original_code)
+        logger.warning("0xc2 find: %s" % self.original_code)
             
         # 2. Insn is danger, and judge if imm includes ...
         insn_imm = self.is_imm_danger()
@@ -592,9 +595,16 @@ class InsnObfuscated():
             nop
             original_code
             '''
+            
             self.obf_code.append("\t%s\t%s%d" % ("jmp", ". + ", 2+9))
             for i in range(9):
                 self.obf_code.append("\tnop")
+            '''
+            if self.bits == 32:
+                self.obf_code.append("\t%s\t%s, %s"%('movl','%eax','%eax'))
+            else:
+                self.obf_code.append("\t%s\t%s, %s"%('movq','%rax','%rax'))
+            '''
             self.obf_code.append(self.original_code)
                 
             return "\n".join(self.obf_code)
