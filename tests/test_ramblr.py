@@ -1,19 +1,32 @@
 #!/usr/bin/python3
 # __Author__ = 'l1b0'
 
+import os
 import compilerex
 import angr
 import subprocess
 import logging
 
+# set log
 logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+def walkdir(dir_path):
+
+    for root, dirs, files in os.walk(dir_path):
+
+        for name in files:
+
+            ropDefense(os.path.join(root,name))
+
 
 def ropDefense(bin_filepath):
 
     #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/level3"
     #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/original/CROMU_00008"
+
+    logger.info(bin_filepath)
     newbin_filepath = bin_filepath + "_new"
     asm_filepath = bin_filepath + ".s"
 
@@ -88,4 +101,5 @@ def ropDefense(bin_filepath):
 if __name__ == '__main__':
 
     #ropDefense("/home/l1b0/Desktop/x86_64/df_gcc_-O1")
-    ropDefense("/home/l1b0/Desktop/cgc-linux/test_binaries/elf/test_add_nopie")
+    #walkdir('/home/l1b0/Desktop/test_binaries/x86_64')
+    ropDefense("/home/l1b0/Desktop/test_binaries/x86_64/ln_gcc_-O2")
