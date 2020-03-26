@@ -413,13 +413,22 @@ class InsnObfuscated():
         '''
         # x86-64
         if self.bits == 64:
-            temp_teg = "%rbx" if reg == "rax" else "%rax"
-            reg = '%'+reg
-            self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg))
-            self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], temp_teg))
-            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], temp_teg))
-            self.obf_code.append("\t%s\t%s,%s" % ("cmpq", temp_teg, reg))
-            self.obf_code.append("\t%s\t%s" % ("popq", temp_teg))
+            if self.insn.operands[0].imm > 0xffffffff:
+                temp_teg = "%rbx" if reg == "rax" else "%rax"
+                reg = '%'+reg
+                self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], temp_teg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], temp_teg))
+                self.obf_code.append("\t%s\t%s,%s" % ("cmpq", temp_teg, reg))
+                self.obf_code.append("\t%s\t%s" % ("popq", temp_teg))
+            else:
+                temp_teg = "%ebx" if reg == "eax" else "%eax"
+                reg = '%'+reg
+                self.obf_code.append("\t%s\t%s" % ("pushq", temp_teg.replace('e','r')))
+                self.obf_code.append("\t%s\t$%d,%s" % ("movl", insn_imm[0], temp_teg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("addl", insn_imm[1], temp_teg))
+                self.obf_code.append("\t%s\t%s,%s" % ("cmpl", temp_teg, reg))
+                self.obf_code.append("\t%s\t%s" % ("popq", temp_teg.replace('e','r')))
             
             self.obf_code = "\n".join(self.obf_code)
             return 
@@ -541,12 +550,12 @@ class InsnObfuscated():
                 # add check code
                 '''
                 movq    $0x800000000000,%r11
-                cmpq    %r11,4(%rbp)
+                cmpq    %r11,8(%rbp)
                 ja	. + 3
                 hlt
                 jmpq    *%rax
                 '''
-                decode_jmp = '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,4(%rbp)\n\tja\t. + 3\n\thlt\n'
+                decode_jmp = '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,8(%rbp)\n\tja\t. + 3\n\thlt'
                 self.obf_code.append(decode_jmp)
                 self.obf_code.append(self.original_code)
                 return "\n".join(self.obf_code)
@@ -556,6 +565,7 @@ class InsnObfuscated():
                 # add check code
                 '''
                 pushl   %eax
+                movl    4(%ebp),%eax
                 shrl    $24,%eax
                 cmpl    $0xf7,%eax
                 jne     . + 3
@@ -563,7 +573,7 @@ class InsnObfuscated():
                 popl    %eax
                 jmpq    *%eax
                 '''
-                decode_jmp = '\tpushl\t%eax\n\tshrl\t$24,%eax\n\tcmpl\t$0xf7,%eax\n\tjne\t. + 3\n\thlt\n\tpopl\t%eax\n'
+                decode_jmp = '\tpushl\t%eax\n\tmovl\t4(%ebp),%eax\n\tshrl\t$24,%eax\n\tcmpl\t$0xf7,%eax\n\tjne\t. + 3\n\thlt\n\tpopl\t%eax'
                 self.obf_code.append(decode_jmp)
                 self.obf_code.append(self.original_code)
                 return "\n".join(self.obf_code)
