@@ -21,26 +21,11 @@ def walkdir(dir_path):
             ropDefense(os.path.join(root,name))
 
 
-def ropDefense(bin_filepath):
+def compile_asm(bin_filepath, new_name, assembly):
 
-    #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/level3"
-    #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/original/CROMU_00008"
+    newbin_filepath = bin_filepath + new_name
+    asm_filepath = newbin_filepath + ".s"
 
-    logger.info(bin_filepath)
-    newbin_filepath = bin_filepath + "_new"
-    asm_filepath = bin_filepath + ".s"
-
-    # reassembly
-    p = angr.Project(bin_filepath, auto_load_libs=False)
-    r = p.analyses.Reassembler(syntax="at&t")
-    #r = p.analyses.Reassembler()
-    r.symbolize()
-    r.remove_unnecessary_stuff()
-    # add by l1b0
-    assembly = r.assembly(comments=True, symbolized=True)
-
-    #assembly = assembly.replace('.globl _dl_relocate_static_pie','')
-    #assembly = assembly.replace('.globl __libc_csu_init', '')
     # exe type: elf or cgc
     file_header = open(bin_filepath,'rb').read(5)
     #logging.info(file_header)
@@ -78,9 +63,9 @@ def ropDefense(bin_filepath):
         if b'Canary found' in res:
             compile_list.append("-fstack-protector-all")
 
-        if b'NX disabled' in res:
+        if b'NX enabled' in res:
             compile_list.append("-z")
-            compile_list.append("execstack")
+            compile_list.append("noexecstack")
 
         if b'No PIE' in res:
             compile_list.append("-no-pie")
@@ -98,8 +83,34 @@ def ropDefense(bin_filepath):
     else:
         raise Exception("Invalid executed file!")
 
+def ropDefense(bin_filepath):
+
+    #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/elf/level3"
+    #bin_filepath = "/home/l1b0/Desktop/cgc-linux/test_binaries/original/CROMU_00008"
+
+    logger.info(bin_filepath)
+
+    # reassembly
+    p = angr.Project(bin_filepath, auto_load_libs=False)
+    r = p.analyses.Reassembler(syntax="at&t")
+    #r = p.analyses.Reassembler()
+    r.symbolize()
+    r.remove_unnecessary_stuff()
+
+    # compile
+
+    assembly_normal = r.assembly(comments=True, symbolized=True, rop_defensed_flag=False)
+    compile_asm(bin_filepath, '_new', assembly_normal)
+
+    assembly_rop = r.assembly(comments=True, symbolized=True, rop_defensed_flag=True)
+    compile_asm(bin_filepath, '_rop', assembly_rop)
+
+    #assembly = assembly.replace('.globl _dl_relocate_static_pie','')
+    #assembly = assembly.replace('.globl __libc_csu_init', '')
+
+
 if __name__ == '__main__':
 
     #ropDefense("/home/l1b0/Desktop/x86_64/df_gcc_-O1")
     #walkdir('/home/l1b0/Desktop/test_binaries/x86_64')
-    ropDefense("/home/l1b0/Desktop/test_binaries/x86_64/ln_gcc_-O2")
+    ropDefense("/home/l1b0/Desktop/test_binaries/x86_64/gzip_nopie")
