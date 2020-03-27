@@ -757,7 +757,7 @@ class Instruction(object):
 
         return comments
 
-    def assembly(self, comments=False, symbolized=True):
+    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True):
         """
 
         :return:
@@ -792,14 +792,16 @@ class Instruction(object):
 
         elif not any([ operand.symbolized for operand in self.operands ]):
             # No label is involved
-            asm = not_symbolized
-            
             #add by l1b0
-            ins_obf = InsnObfuscated(self.insn,self.addr,self.project.arch.bits)
-            obfcode = ins_obf.dispatch()
+            if rop_defensed_flag == False:
+                
+                asm = not_symbolized
+            else:
             
-            asm = obfcode
+                ins_obf = InsnObfuscated(self.insn,self.addr,self.project.arch.bits)
+                obfcode = ins_obf.dispatch()
             
+                asm = obfcode
 
         elif not self.operands:
             # There is no operand
@@ -921,8 +923,8 @@ class BasicBlock(object):
         for ins in self.instructions:
             ins.assign_labels()
 
-    def assembly(self, comments=False, symbolized=True):
-        s = "\n".join([ins.assembly(comments=comments, symbolized=symbolized) for ins in self.instructions])
+    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True):
+        s = "\n".join([ins.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=rop_defensed_flag) for ins in self.instructions])
         #l.warning(s)
         return s
 
@@ -969,7 +971,7 @@ class Procedure(object):
 
         self.binary = binary
         self.project = binary.project
-
+        
         if function is None:
             self.addr = addr
             self.size = size
@@ -983,7 +985,9 @@ class Procedure(object):
 
             self.function = function
             self._name = function.name
-
+        
+        # add by l1b0
+        #l.warning(self._name)
         self.asm_code = asm_code
         self.section = section
 
@@ -1072,7 +1076,7 @@ class Procedure(object):
         for block in self.blocks:
             block.assign_labels()
 
-    def assembly(self, comments=False, symbolized=True):
+    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True):
         """
         Get the assembly manifest of the procedure.
 
@@ -1092,7 +1096,7 @@ class Procedure(object):
         else:
             procedure_name = self._name
         header += "\t#Procedure %s\n" % procedure_name
-        #l.warning(procedure_name)
+        
         
         if self._output_function_label:
             if self.addr:
@@ -1108,12 +1112,14 @@ class Procedure(object):
             assembly.append((self.addr, s))
         elif self.blocks:
             for b in sorted(self.blocks, key=lambda x:x.addr):  # type: BasicBlock
-                s = b.assembly(comments=comments, symbolized=symbolized)
+                s = b.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=rop_defensed_flag)
                 assembly.append((b.addr, s))
         
         # add by l1b0
-        fbp = FreeBranchProtection(assembly, self._name, self.project.arch.bits)
-        assembly = fbp.dispatch()
+        #l.warning(self._name)
+        if rop_defensed_flag:
+            fbp = FreeBranchProtection(assembly, self._name, self.project.arch.bits)
+            assembly = fbp.dispatch()
         
         return assembly
 
@@ -2085,7 +2091,7 @@ class Reassembler(Analysis):
             for proc in self.procedures:
                 proc.assign_labels()
 
-    def assembly(self, comments=False, symbolized=True):
+    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True):
 
         if symbolized and self._symbolization_needed:
             self.symbolize()
@@ -2102,7 +2108,9 @@ class Reassembler(Analysis):
 
         addr_and_assembly = [ ]
         for proc in self.procedures:
-            addr_and_assembly.extend(proc.assembly(comments=comments, symbolized=symbolized))
+            # add by l1b0
+            #l.warning(proc._name)
+            addr_and_assembly.extend(proc.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=rop_defensed_flag))
         # sort it by the address - must be a stable sort!
         addr_and_assembly = sorted(addr_and_assembly, key=lambda x: x[0] if x[0] is not None else -1)
         all_assembly_lines.extend(line for _, line in addr_and_assembly)
@@ -2259,6 +2267,7 @@ class Reassembler(Analysis):
             '__x86.get_pc_thunk.bx',
             '__libc_csu_init',
             '__libc_csu_fini',
+            '_dl_relocate_static_pie',
         }
 
         glibc_data_blacklist = {
