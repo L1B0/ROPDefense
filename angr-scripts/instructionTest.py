@@ -330,8 +330,12 @@ class InsnObfuscated():
         # x86-64
         if self.bits == 64:
             reg = '%'+reg
-            self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], reg))
-            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
+            if 'e' in reg:
+                self.obf_code.append("\t%s\t$%d,%s" % ("movl", insn_imm[0], reg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("addl", insn_imm[1], reg))
+            else:
+                self.obf_code.append("\t%s\t$%d,%s" % ("movq", insn_imm[0], reg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
             
             self.obf_code = "\n".join(self.obf_code)
             return 
@@ -355,8 +359,13 @@ class InsnObfuscated():
         # x86-64
         if self.bits == 64:
             reg = '%'+reg
-            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[0], reg))
-            self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
+            
+            if 'e' in reg:
+                self.obf_code.append("\t%s\t$%d,%s" % ("addl", insn_imm[0], reg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("addl", insn_imm[1], reg))
+            else:
+                self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[0], reg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("addq", insn_imm[1], reg))
             
             self.obf_code = "\n".join(self.obf_code)
             return 
@@ -380,10 +389,16 @@ class InsnObfuscated():
         # x86-64
         if self.bits == 64:
             reg = '%'+reg
-            self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[0], reg))
-            self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[1], reg))
+            
+            if 'e' in reg:
+                self.obf_code.append("\t%s\t$%d,%s" % ("subl", insn_imm[0], reg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("subl", insn_imm[1], reg))
+            else:
+                self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[0], reg))
+                self.obf_code.append("\t%s\t$%d,%s" % ("subq", insn_imm[1], reg))
             
             self.obf_code = "\n".join(self.obf_code)
+
             return 
             
         # x86
@@ -530,6 +545,40 @@ class InsnObfuscated():
         
         self.obf_code = ASMConverter.intel_to_att("\n".join(self.obf_code))
         return
+    
+    def check_temp(self, insn_type):
+        
+        valid_mnemonic = [ 'movq', 'movl', 'addq', 'addl', 'subq', 'subl',
+                           'xorq', 'xorl', 'orq', 'orl', 'andq', 'andl']
+        
+        if self.bits == 32 or self.insn.mnemonic not in valid_mnemonic:
+            return False
+        
+        if self.insn.operands[0].type == X86_OP_IMM:
+            reg0 = '$'+hex(self.insn.operands[0].imm)
+        elif self.insn.operands[0].type == X86_OP_REG:
+            regindex0 = self.insn.operands[0].reg
+            reg0 = '%'+self.insn.reg_name(regindex0)
+        else:
+            return False
+        
+        logger.warning("remove 0xc2: %s"%self.original_code)
+            
+        regindex1 = self.insn.operands[1].reg
+        reg1 = '%'+self.insn.reg_name(regindex1)
+        
+        temp_reg = '%r14' if reg1 == '%r13' else '%r13'
+        temp_reg2 = temp_reg if self.insn.mnemonic[-1] == 'q' else temp_reg+'d'
+        first_mnemonic = 'mov'+self.insn.mnemonic[-1]
+        second_mnemonic = self.insn.mnemonic
+        
+        self.obf_code.append("\t%s\t%s"%('pushq',temp_reg))
+        self.obf_code.append("\t%s\t%s,%s"%(first_mnemonic,reg0,temp_reg2))
+        self.obf_code.append("\t%s\t%s,%s"%(second_mnemonic,temp_reg2,reg1))
+        self.obf_code.append("\t%s\t%s"%('popq',temp_reg))
+        
+        return True
+               
 
     def dispatch(self):
         
@@ -590,6 +639,9 @@ class InsnObfuscated():
         
         # 2.1. imm is safty, so add nop
         if insn_imm == []:
+            
+            if self.check_temp(insn_type):
+                return '\n'.join(self.obf_code)
             
             # the number of nop is important!!!
             '''
