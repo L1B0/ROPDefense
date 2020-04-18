@@ -549,7 +549,7 @@ class InsnObfuscated():
     def check_temp(self, insn_type):
         
         valid_mnemonic = [ 'movq', 'movl', 'addq', 'addl', 'subq', 'subl',
-                           'xorq', 'xorl', 'orq', 'orl', 'andq', 'andl']
+                           'xorq', 'xorl', 'orq', 'orl', 'andq', 'andl', 'cmpq', 'cmpl']
         
         if self.bits == 32 or self.insn.mnemonic not in valid_mnemonic:
             return False
