@@ -757,7 +757,7 @@ class Instruction(object):
 
         return comments
 
-    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True):
+    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True, protect_flag=False, text_addr=[]):
         """
 
         :return:
@@ -798,7 +798,7 @@ class Instruction(object):
                 asm = not_symbolized
             else:
             
-                ins_obf = InsnObfuscated(self.insn,self.addr,self.project.arch.bits)
+                ins_obf = InsnObfuscated(self.insn,self.addr,self.project.arch.bits,protect_flag=protect_flag,text_addr=text_addr)
                 obfcode = ins_obf.dispatch()
             
                 asm = obfcode
@@ -835,8 +835,13 @@ class Instruction(object):
                                 all_operands[i] = "$" + all_operands[i]
                             else:
                                 all_operands[i] = 'OFFSET FLAT:' + all_operands[i]
-
-            asm = "\t%s%s" % (mnemonic, "\t" + ", ".join(all_operands))
+            if rop_defensed_flag == True and self.insn.id == X86_INS_JMP:
+                ins_obf = InsnObfuscated(self.insn,self.addr,self.project.arch.bits,protect_flag=-1,text_addr=text_addr)
+                obfcode = ins_obf.dispatch()
+            
+                asm = obfcode + "\t%s%s" % (mnemonic, "\t" + ", ".join(all_operands))
+            else:
+                asm = "\t%s%s" % (mnemonic, "\t" + ", ".join(all_operands))
 
         if self.addr in self.binary._removed_instructions:
             contents = [dbg_comments, inserted_asm_before_label, labels, inserted_asm_after_label]
@@ -923,8 +928,8 @@ class BasicBlock(object):
         for ins in self.instructions:
             ins.assign_labels()
 
-    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True):
-        s = "\n".join([ins.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=rop_defensed_flag) for ins in self.instructions])
+    def assembly(self, comments=False, symbolized=True, rop_defensed_flag=True, protect_flag=False, text_addr=[]):
+        s = "\n".join([ins.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=rop_defensed_flag, protect_flag=protect_flag, text_addr=text_addr) for ins in self.instructions])
         #l.warning(s)
         return s
 
@@ -1111,16 +1116,38 @@ class Procedure(object):
             s = self.asm_code
             assembly.append((self.addr, s))
         elif self.blocks:
+            
+            # get the text addr
+            text_addr = [0,0]
+            for sec in self.project.loader.main_object.sections:
+                #l.warning(sec.name)
+                if sec.name == '.text':
+                    text_addr = [sec.min_addr,sec.max_addr]
+                    break
+            #add by l1b0
+            # test if func can be protected
+            temp_assembly = []
+            temp_assembly += assembly
             for b in sorted(self.blocks, key=lambda x:x.addr):  # type: BasicBlock
-                s = b.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=rop_defensed_flag)
-                assembly.append((b.addr, s))
-        
-        # add by l1b0
-        #l.warning(self._name)
-        if rop_defensed_flag:
-            fbp = FreeBranchProtection(assembly, self._name, self.project.arch.bits)
-            assembly = fbp.dispatch()
-        
+                s = b.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=False)
+                temp_assembly.append((b.addr, s))
+            
+            # add by l1b0
+            #l.warning(self._name)
+            if rop_defensed_flag:
+                # test if func can be protected
+                fbp = FreeBranchProtection(temp_assembly, self._name, self.project.arch.bits)
+                temp_assembly, protect_flag = fbp.dispatch()
+                
+                for b in sorted(self.blocks, key=lambda x:x.addr):  # type: BasicBlock
+                    s = b.assembly(comments=comments, symbolized=symbolized, rop_defensed_flag=True, protect_flag=protect_flag, text_addr=text_addr)
+                    assembly.append((b.addr, s))
+                #l.warning(self._name + str(assembly))
+                fbp = FreeBranchProtection(assembly, self._name, self.project.arch.bits)
+                assembly, protect_flag = fbp.dispatch()
+                
+            else:
+                assembly = temp_assembly
         return assembly
 
     def instruction_addresses(self):

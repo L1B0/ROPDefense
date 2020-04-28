@@ -59,6 +59,7 @@ class FreeBranchProtection():
     def dispatch(self):
         
         #logger.warning(self.name)
+        protect_flag = False
         if self.name == '__stack_chk_fail_local':
             return self.assembly
         
@@ -85,52 +86,47 @@ class FreeBranchProtection():
             func_end_flag = '\tretq\t'
             
             encode_retn_addr = '\t%s\t%s\n'%('pushq','%r11')
+            encode_retn_addr += '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,8(%rsp)\n\tja\t. + 16\n'
             encode_retn_addr += '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
             encode_retn_addr += '\t%s\t%s,%s\n'%('xorq','%r11','8(%rsp)')
             encode_retn_addr += '\t%s\t%s\n'%('popq','%r11')
+            decode_retn_addr = encode_retn_addr.replace('\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,8(%rsp)\n\tja\t. + 16\n','')
             
             #encode_jmp = '\n\t%s\t%s,%s'%('movq','%r11','-0x50(%rbp)')
             
         # encode all func retn addr     
         
-        #logger.warning(self.assembly[1][1])
+        logger.warning(self.name)
         #logger.warning(self.assembly[-1][1]) 
+
+        # decode the func retn addr
+        for i in range(len(self.assembly)-1,-1,-1):
+            func_end_asm = self.assembly[i][1]
+            func_end_addr = self.assembly[i][0]
+        
+            #logging.warning(func_end_asm)
+            # find retn
+            if func_end_flag in func_end_asm:
+                
+                #logger.warning("retn protection: "+self.name)
+                protect_flag = True
+                func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, decode_retn_addr)
+                
+                #logging.warning(func_end_asm_split)
+                self.assembly[i] = (func_end_addr, func_end_asm_split)
+        
         func_start_asm = self.assembly[1][1]
         func_start_addr = self.assembly[1][0]
-        func_end_asm = self.assembly[-1][1]
-
-        if func_end_flag in func_end_asm:
-            
-            #logger.warning(self.name)
-            # add encode asm
+        # no retn, go back
+        if not protect_flag:
+            self.assembly[1] = (func_start_addr, func_start_asm)
+        else:
             func_start_asm_split = self.add_asm_into_block(func_start_asm, '', encode_retn_addr)
             
             #logging.warning(func_start_asm_split)
             self.assembly[1] = (func_start_addr, func_start_asm_split)
-            
-            # decode the func retn addr
-            flag = False
-            for i in range(len(self.assembly)-1,-1,-1):
-                func_end_asm = self.assembly[i][1]
-                func_end_addr = self.assembly[i][0]
-            
-                #logging.warning(func_end_asm)
-                # find retn
-                if func_end_flag in func_end_asm:
-                    
-                    logger.warning("retn protection: "+self.name)
-                    flag = True
-                    func_end_asm_split = self.add_asm_into_block(func_end_asm, func_end_flag, encode_retn_addr)
-                    
-                    #logging.warning(func_end_asm_split)
-                    self.assembly[i] = (func_end_addr, func_end_asm_split)
-            
-            # no retn, go back
-            if not flag:
-                self.assembly[1] = (func_start_addr, func_start_asm)
-
         
-        return self.assembly           
+        return self.assembly, protect_flag         
         '''
         # find check_insn and add encode_retn_addr into asm
         # i is addr, j is block
@@ -175,7 +171,7 @@ class FreeBranchProtection():
         
         
 class InsnObfuscated():
-    def __init__(self, insn, addr, bits):
+    def __init__(self, insn, addr, bits, protect_flag, text_addr):
         """
         
         :param insn: Capstone Instr object
@@ -188,6 +184,8 @@ class InsnObfuscated():
         self.obf_code = []
         self.original_code = "\t%s\t%s" % (self.insn.mnemonic, self.insn.op_str)
         self.format_flag = 0
+        self.protect_flag = protect_flag
+        self.text_addr = text_addr
     
     def asm2hex_intel(self):
         
@@ -589,26 +587,51 @@ class InsnObfuscated():
         
         insn_type = self.insn.id
         # indirect jump, add check code
-        if insn_type == X86_INS_JMP or insn_type == X86_INS_CALL:
+        
+        if insn_type == X86_INS_JMP and self.insn.operands[0].type == X86_OP_IMM and self.bits == 64:
+                
+            imm = self.insn.operands[0].imm
+            #logger.warning(str(self.insn.operands[0].type)+hex(imm)+str(self.text_addr))
+            if imm >= self.text_addr[0] and imm <= self.text_addr[1]:
+                return ''
+            
+            logger.warning("indirect jmp decode: "+self.original_code)
+            # add decode code       
+            decode_jmp = '\t%s\t%s\n'%('pushq','%r11')
+            decode_jmp += '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,8(%rsp)\n\tjb\t. + 16\n'
+            decode_jmp += '\t%s\t%s,%s\n'%('movq','%fs:0x28','%r11')
+            decode_jmp += '\t%s\t%s,%s\n'%('xorq','%r11','8(%rsp)')
+            decode_jmp += '\t%s\t%s\n'%('popq','%r11')
+            #self.obf_code.append(decode_jmp)
+            #self.obf_code.append(self.original_code)
+            return decode_jmp
+        
+        if self.protect_flag == -1:
+            return ''
+        
+        if self.protect_flag == True and (insn_type == X86_INS_JMP or insn_type == X86_INS_CALL):
             #logger.info(str(len(self.insn.operands))+self.original_code)
             # 1	jmpq	*%rax
             # logger.info(str(self.insn.operands[0].type == X86_OP_IMM))
             # False
-            if self.insn.operands[0].type == X86_OP_REG and self.bits == 64:
+            if self.insn.operands[0].type == X86_OP_MEM and self.bits == 64:
                 logger.warning("indirect jmp protection: "+self.original_code)
                 # add check code
                 '''
+                pushq   %r11
                 movq    $0x800000000000,%r11
                 cmpq    %r11,8(%rbp)
                 ja	. + 3
                 hlt
+                popq    %r11
                 jmpq    *%rax
                 '''
-                decode_jmp = '\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,8(%rbp)\n\tja\t. + 3\n\thlt'
+                decode_jmp = '\tpushq\t%r11\n\tmovq\t$0x800000000000,%r11\n\tcmpq\t%r11,8(%rbp)\n\tja\t. + 3\n\thlt\n\tpopq\t%r11'
                 self.obf_code.append(decode_jmp)
                 self.obf_code.append(self.original_code)
                 return "\n".join(self.obf_code)
             
+                
             if self.insn.operands[0].type == X86_OP_REG and self.bits == 32:
                 logger.warning("indirect jmp protection: "+self.original_code)
                 # add check code
@@ -640,8 +663,8 @@ class InsnObfuscated():
         # 2.1. imm is safty, so add nop
         if insn_imm == []:
             
-            if self.check_temp(insn_type):
-                return '\n'.join(self.obf_code)
+            #if self.check_temp(insn_type):
+            #    return '\n'.join(self.obf_code)
             
             # the number of nop is important!!!
             '''
